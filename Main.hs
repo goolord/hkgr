@@ -1,19 +1,8 @@
-{-# LANGUAGE CPP #-}
-
 module Main (main) where
-
-#if (defined(MIN_VERSION_base) && MIN_VERSION_base(4,8,0))
-#else
-import Control.Applicative (pure, (<$>))
-#endif
 
 import Control.Exception (bracket_, onException)
 import Control.Monad
 import Data.Maybe
-#if (defined(MIN_VERSION_base) && MIN_VERSION_base(4,11,0))
-#else
-import Data.Semigroup ((<>))
-#endif
 import SimpleCabal
 import SimpleCmd
 import SimpleCmd.Git
@@ -41,6 +30,9 @@ main =
     forceOpt = switchWith 'f' "force"
     lintOpt = switchWith 'l' "lint" "Run hlint before proceeding"
 
+distPath :: FilePath
+distPath = "dist-newstyle" </> "sdist"
+
 tagDistCmd :: Bool -> Bool -> IO ()
 tagDistCmd force lint = do
   when lint $ do
@@ -63,14 +55,14 @@ tagDistCmd force lint = do
 
 checkNotPublished :: PackageIdentifier -> IO ()
 checkNotPublished pkgid = do
-  let published = "dist" </> showPkgId pkgid <.> ".tar.gz" <.> "published"
+  let published = distPath </> showPkgId pkgid <.> ".tar.gz" <.> "published"
   exists <- doesFileExist published
   when exists $ error' $ showPkgId pkgid <> " was already published!!"
 
 sdist :: Bool -> PackageIdentifier -> IO ()
 sdist force pkgid = do
   let ver = packageVersion pkgid
-  let target = "dist" </> showPkgId pkgid <.> ".tar.gz"
+  let target = distPath </> showPkgId pkgid <.> ".tar.gz"
   haveTarget <- doesFileExist target
   when haveTarget $
     if force
@@ -95,7 +87,7 @@ uploadCmd :: Bool -> Bool -> IO ()
 uploadCmd publish lint = do
   pkgid <- getPackageId
   checkNotPublished pkgid
-  let file = "dist" </> showPkgId pkgid <.> ".tar.gz"
+  let file = distPath </> showPkgId pkgid <.> ".tar.gz"
   exists <- doesFileExist file
   unless exists $ tagDistCmd False lint
   cabal_ "upload" $ ["--publish" | publish] ++ [file]
