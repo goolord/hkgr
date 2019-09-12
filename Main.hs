@@ -28,10 +28,10 @@ main =
   "'Hackager' is a package release tool for easy Hackage workflow" $
   subcommands
   [ Subcommand "tagdist" "'git tag' version and 'cabal sdist' tarball" $
-    tagDistCmd <$> forceOpt "Move existing tag"
-  , Subcommand "upload" "'cabal upload' candidate tarball to Hackage" $ pure $ uploadCmd False
+    tagDistCmd <$> forceOpt "Move existing tag" <*> lintOpt
+  , Subcommand "upload" "'cabal upload' candidate tarball to Hackage" $ (pure $ uploadCmd False) <*> lintOpt
   , Subcommand "publish" "Publish to Hackage ('cabal upload --publish')" $
-    pure $ uploadCmd True
+    (pure $ uploadCmd True) <*> lintOpt
   , Subcommand "upload-haddock" "Upload candidate documentation to Hackage" $ pure $ upHaddockCmd False
   , Subcommand "publish-haddock" "Publish documentation to Hackage" $ pure $ upHaddockCmd True
   , Subcommand "version" "Show the package version from .cabal file" $
@@ -39,11 +39,13 @@ main =
   ]
   where
     forceOpt = switchWith 'f' "force"
+    lintOpt = switchWith 'l' "lint" "Run hlint before proceeding"
 
-tagDistCmd :: Bool -> IO ()
-tagDistCmd force = do
-  mhlint <- findExecutable "hlint"
-  when (isJust mhlint) $ cmd_ "hlint" ["."]
+tagDistCmd :: Bool -> Bool -> IO ()
+tagDistCmd force lint = do
+  when lint $ do
+    mhlint <- findExecutable "hlint"
+    when (isJust mhlint) $ cmd_ "hlint" ["."]
   git_ "diff" []
   pkgid <- getPackageId
   checkNotPublished pkgid
@@ -89,13 +91,13 @@ showVersionCmd = do
   pkgid <- getPackageId
   putStrLn $ packageVersion pkgid
 
-uploadCmd :: Bool -> IO ()
-uploadCmd publish = do
+uploadCmd :: Bool -> Bool -> IO ()
+uploadCmd publish lint = do
   pkgid <- getPackageId
   checkNotPublished pkgid
   let file = "dist" </> showPkgId pkgid <.> ".tar.gz"
   exists <- doesFileExist file
-  unless exists $ tagDistCmd False
+  unless exists $ tagDistCmd False lint
   cabal_ "upload" $ ["--publish" | publish] ++ [file]
   when publish $ do
     createFileLink (takeFileName file) (file <.> "published")
