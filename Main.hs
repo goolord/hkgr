@@ -35,13 +35,18 @@ distPath = "dist-newstyle" </> "sdist"
 
 tagDistCmd :: Bool -> Bool -> IO ()
 tagDistCmd force lint = do
+  needProgram "cabal"
   when lint $ do
     mhlint <- findExecutable "hlint"
-    when (isJust mhlint) $ cmd_ "hlint" ["."]
-  git_ "diff" []
+    when (isJust mhlint) $ void $ cmdBool "hlint" ["."]
+    diff <- git "diff" []
+    unless (null diff) $ do
+      putStrLn "=== start of uncommitted changes ==="
+      putStrLn diff
+      putStrLn "=== end of uncommitted changes ==="
   pkgid <- getPackageId
   checkNotPublished pkgid
-  let tag = packageVersion pkgid
+  let tag = pkgidTag pkgid
   tagHash <- cmdMaybe "git" ["rev-parse", tag]
   when (isJust tagHash && not force) $
     error' "tag exists: use --force to override"
@@ -53,6 +58,9 @@ tagDistCmd force lint = do
       then git_ "tag" ["--force", tag, fromJust tagHash]
       else git_ "tag" ["--delete", tag]
 
+pkgidTag :: PackageIdentifier -> String
+pkgidTag pkgid = "v" ++ packageVersion pkgid
+
 checkNotPublished :: PackageIdentifier -> IO ()
 checkNotPublished pkgid = do
   let published = distPath </> showPkgId pkgid <.> ".tar.gz" <.> "published"
@@ -61,8 +69,8 @@ checkNotPublished pkgid = do
 
 sdist :: Bool -> PackageIdentifier -> IO ()
 sdist force pkgid = do
-  let ver = packageVersion pkgid
   let target = distPath </> showPkgId pkgid <.> ".tar.gz"
+  let tag = pkgidTag pkgid
   haveTarget <- doesFileExist target
   when haveTarget $
     if force
@@ -71,7 +79,7 @@ sdist force pkgid = do
   cwd <- getCurrentDirectory
   withTempDirectory "tmp-sdist" $ do
     git_ "clone" ["-q", "--no-checkout", "..", "."]
-    git_ "checkout" ["-q", ver]
+    git_ "checkout" ["-q", tag]
     cabal_ "check" []
     cabal_ "configure" []
     -- cabal_ "build" []
@@ -90,11 +98,15 @@ uploadCmd publish lint = do
   let file = distPath </> showPkgId pkgid <.> ".tar.gz"
   exists <- doesFileExist file
   unless exists $ tagDistCmd False lint
+  when publish $ do
+    let tag = pkgidTag pkgid
+    tagHash <- cmd "git" ["rev-parse", tag]
+    branch <- cmd "git" ["branch", "--show-current"]
+    git_ "push" ["origin", tagHash ++ ":" ++ branch]
+    git_ "push" ["origin", tag]
   cabal_ "upload" $ ["--publish" | publish] ++ [file]
   when publish $ do
     createFileLink (takeFileName file) (file <.> "published")
-    let tag = packageVersion pkgid
-    git_ "push" ["origin", tag]
 
 upHaddockCmd :: Bool -> IO ()
 upHaddockCmd publish =
@@ -108,3 +120,4 @@ withTempDirectory :: FilePath -> IO a -> IO a
 withTempDirectory dir run =
   bracket_ (createDirectory dir) (removeDirectoryRecursive dir) $
   withCurrentDirectory dir run
+
